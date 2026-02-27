@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use anyhow::Context;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -8,10 +9,14 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use google_cloud_googleapis::pubsub::v1::PubsubMessage;
+use google_cloud_pubsub::client::{Client, ClientConfig};
+use google_cloud_pubsub::publisher::Publisher;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use shared::ApplicationStatus;
+use shared::{LoanApplication, TOPIC_APPLICATIONS};
 
 struct AppError(anyhow::Error);
 
@@ -32,11 +37,11 @@ type ApplicationStore = Arc<Mutex<HashMap<String, ApplicationStatus>>>;
 
 #[derive(Clone)]
 struct AppState {
+    publisher: Publisher,
     store: ApplicationStore,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct SubmitRequest {
     user_id: String,
     amount: u64,
@@ -57,7 +62,28 @@ async fn submit_application(
         format!("loan-{n}")
     };
 
-    println!("Received application {:?}", req);
+    let app = LoanApplication {
+        application_id: id.clone(),
+        user_id: req.user_id,
+        amount: req.amount,
+        currency: req.currency,
+        submitted_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    let payload = serde_json::to_vec(&app)
+        .context("failed to serialize application")?;
+
+    state
+        .publisher
+        .publish(PubsubMessage {
+            data: payload.into(),
+            ..Default::default()
+        })
+        .await
+        .get()
+        .await
+        .context("failed to publish application")?;
+
     {
         let mut store = state.store.lock().await;
         store.insert(
@@ -91,13 +117,24 @@ async fn get_application(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let config = ClientConfig::default();
+
+    // auto-detects PUBSUB_EMULATOR_HOST from the environment
+    let client = Client::new(config)
+        .await
+        .context("failed to create pubsub client")?;
+
+    println!("Connected to Pub/Sub.");
+
+    let topic = client.topic(TOPIC_APPLICATIONS);
+    let publisher = topic.new_publisher(None);
+
     let store: ApplicationStore =
         Arc::new(Mutex::new(HashMap::new()));
 
-    let state = AppState { store };
+    let state = AppState { publisher, store };
 
     let app = Router::new()
         .route(
