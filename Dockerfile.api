@@ -1,0 +1,33 @@
+# --- Builder stage ---
+FROM rust:1.88 AS builder
+
+WORKDIR /app
+
+# Dependency caching: copy manifests and build dummy projects
+COPY Cargo.toml Cargo.lock ./
+COPY shared/Cargo.toml shared/Cargo.toml
+COPY api-service/Cargo.toml api-service/Cargo.toml
+
+RUN mkdir -p shared/src api-service/src \
+    && echo "// dummy" > shared/src/lib.rs \
+    && echo "fn main() {}" > api-service/src/main.rs \
+    && cargo build --release -p api-service \
+    && rm -rf shared/src api-service/src \
+    && rm -f target/release/deps/shared* target/release/deps/api_service* target/release/deps/libshared*
+
+# Copy real source and rebuild
+COPY shared/src shared/src
+COPY api-service/src api-service/src
+
+RUN cargo build --release -p api-service
+
+# --- Runtime stage ---
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/api-service /usr/local/bin/api-service
+
+EXPOSE 3000
+
+CMD ["api-service"]

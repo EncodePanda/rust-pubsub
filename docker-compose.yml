@@ -14,3 +14,15 @@ services:
     volumes:
       - ./scripts/init-emulator.sh:/init-emulator.sh:ro
     entrypoint: ["/bin/sh", "/init-emulator.sh"]
+
+  api-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    depends_on:
+      pubsub-init:
+        condition: service_completed_successfully
+    environment:
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+    ports:
+      - "3000:3000"
