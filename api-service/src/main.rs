@@ -15,8 +15,9 @@ use google_cloud_pubsub::publisher::Publisher;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use shared::ApplicationStatus;
+use shared::{ApplicationStatus, LoanDecision, SUB_DECISIONS};
 use shared::{LoanApplication, TOPIC_APPLICATIONS};
+use futures_util::StreamExt;
 
 struct AppError(anyhow::Error);
 
@@ -125,6 +126,65 @@ async fn get_application(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
+async fn decision_listener(
+    client: Client,
+    store: ApplicationStore,
+) {
+    let subscription = client.subscription(SUB_DECISIONS);
+
+    let mut stream = match subscription.subscribe(None).await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "Failed to subscribe to decisions: {e}"
+            );
+            return;
+        }
+    };
+
+    println!(
+        "Background listener subscribed to '{}'",
+        SUB_DECISIONS,
+    );
+
+    while let Some(message) = stream.next().await {
+        let data = &message.message.data;
+        match serde_json::from_slice::<LoanDecision>(data) {
+            Ok(decision) => {
+                println!(
+                    "Received decision for {}: {:?}",
+                    decision.application_id,
+                    decision.status,
+                );
+                let status_str =
+                    serde_json::to_value(&decision.status)
+                        .ok()
+                        .and_then(|v| {
+                            v.as_str().map(String::from)
+                        })
+                        .unwrap_or("UNKNOWN".into());
+
+                let mut store = store.lock().await;
+                if let Some(entry) =
+                    store.get_mut(&decision.application_id)
+                {
+                    entry.status = status_str;
+                    entry.interest_rate =
+                        decision.interest_rate;
+                    entry.max_term_months =
+                        decision.max_term_months;
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to deserialize decision: {e}"
+                );
+            }
+        }
+        let _ = message.ack().await;
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = ClientConfig::default();
@@ -141,6 +201,11 @@ async fn main() -> anyhow::Result<()> {
 
     let store: ApplicationStore =
         Arc::new(Mutex::new(HashMap::new()));
+
+    tokio::spawn(decision_listener(
+        client.clone(),
+        store.clone(),
+    ));
 
     let state = AppState { publisher, store };
 
