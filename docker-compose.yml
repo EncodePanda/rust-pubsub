@@ -26,3 +26,13 @@ services:
       - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
     ports:
       - "3000:3000"
+
+  risk-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.risk
+    depends_on:
+      pubsub-init:
+        condition: service_completed_successfully
+    environment:
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085

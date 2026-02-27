@@ -1,2 +1,2 @@
 #!/bin/sh
-docker compose logs -f api-service
+docker compose logs -f api-service risk-processor

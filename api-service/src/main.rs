@@ -70,6 +70,14 @@ async fn submit_application(
         submitted_at: chrono::Utc::now().to_rfc3339(),
     };
 
+    println!(
+        "Submitting application {} for user {} ({} {})",
+        app.application_id,
+        app.user_id,
+        app.amount,
+        app.currency,
+    );
+
     let payload = serde_json::to_vec(&app)
         .context("failed to serialize application")?;
 

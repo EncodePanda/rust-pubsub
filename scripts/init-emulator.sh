@@ -24,10 +24,20 @@ echo "Creating topic 'loan-applications'..."
 curl -s -X PUT "http://${EMULATOR_HOST}/v1/projects/${PROJECT_ID}/topics/loan-applications"
 echo ""
 
+echo "Creating topic 'loan-decisions'..."
+curl -s -X PUT "http://${EMULATOR_HOST}/v1/projects/${PROJECT_ID}/topics/loan-decisions"
+echo ""
+
 echo "Creating subscription 'loan-applications-sub'..."
 curl -s -X PUT "http://${EMULATOR_HOST}/v1/projects/${PROJECT_ID}/subscriptions/loan-applications-sub" \
   -H "Content-Type: application/json" \
   -d "{\"topic\": \"projects/${PROJECT_ID}/topics/loan-applications\"}"
+echo ""
+
+echo "Creating subscription 'loan-decisions-sub'..."
+curl -s -X PUT "http://${EMULATOR_HOST}/v1/projects/${PROJECT_ID}/subscriptions/loan-decisions-sub" \
+  -H "Content-Type: application/json" \
+  -d "{\"topic\": \"projects/${PROJECT_ID}/topics/loan-decisions\"}"
 echo ""
 
 echo "Emulator initialization complete."

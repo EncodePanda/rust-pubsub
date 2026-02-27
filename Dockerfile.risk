@@ -13,23 +13,21 @@ RUN mkdir -p shared/src api-service/src risk-processor/src \
     && echo "// dummy" > shared/src/lib.rs \
     && echo "fn main() {}" > api-service/src/main.rs \
     && echo "fn main() {}" > risk-processor/src/main.rs \
-    && cargo build --release -p api-service \
-    && rm -rf shared/src api-service/src \
-    && rm -f target/release/deps/shared* target/release/deps/api_service* target/release/deps/libshared*
+    && cargo build --release -p risk-processor \
+    && rm -rf shared/src risk-processor/src \
+    && rm -f target/release/deps/shared* target/release/deps/risk_processor* target/release/deps/libshared*
 
-# Copy real source and rebuild (risk-processor dummy stays to satisfy workspace)
+# Copy real source and rebuild (api-service dummy stays to satisfy workspace)
 COPY shared/src shared/src
-COPY api-service/src api-service/src
+COPY risk-processor/src risk-processor/src
 
-RUN cargo build --release -p api-service
+RUN cargo build --release -p risk-processor
 
 # --- Runtime stage ---
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/api-service /usr/local/bin/api-service
+COPY --from=builder /app/target/release/risk-processor /usr/local/bin/risk-processor
 
-EXPOSE 3000
-
-CMD ["api-service"]
+CMD ["risk-processor"]
