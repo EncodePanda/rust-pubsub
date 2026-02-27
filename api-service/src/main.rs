@@ -9,15 +9,15 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use futures_util::StreamExt;
 use google_cloud_googleapis::pubsub::v1::PubsubMessage;
 use google_cloud_pubsub::client::{Client, ClientConfig};
 use google_cloud_pubsub::publisher::Publisher;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 use shared::{ApplicationStatus, LoanDecision, SUB_DECISIONS};
 use shared::{LoanApplication, TOPIC_APPLICATIONS};
-use futures_util::StreamExt;
+use tokio::sync::Mutex;
 
 struct AppError(anyhow::Error);
 
@@ -73,14 +73,10 @@ async fn submit_application(
 
     println!(
         "Submitting application {} for user {} ({} {})",
-        app.application_id,
-        app.user_id,
-        app.amount,
-        app.currency,
+        app.application_id, app.user_id, app.amount, app.currency,
     );
 
-    let payload = serde_json::to_vec(&app)
-        .context("failed to serialize application")?;
+    let payload = serde_json::to_vec(&app).context("failed to serialize application")?;
 
     state
         .publisher
@@ -108,9 +104,7 @@ async fn submit_application(
 
     Ok((
         StatusCode::CREATED,
-        Json(SubmitResponse {
-            application_id: id,
-        }),
+        Json(SubmitResponse { application_id: id }),
     ))
 }
 
@@ -126,26 +120,18 @@ async fn get_application(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
-async fn decision_listener(
-    client: Client,
-    store: ApplicationStore,
-) {
+async fn decision_listener(client: Client, store: ApplicationStore) {
     let subscription = client.subscription(SUB_DECISIONS);
 
     let mut stream = match subscription.subscribe(None).await {
         Ok(s) => s,
         Err(e) => {
-            eprintln!(
-                "Failed to subscribe to decisions: {e}"
-            );
+            eprintln!("Failed to subscribe to decisions: {e}");
             return;
         }
     };
 
-    println!(
-        "Background listener subscribed to '{}'",
-        SUB_DECISIONS,
-    );
+    println!("Background listener subscribed to '{}'", SUB_DECISIONS,);
 
     while let Some(message) = stream.next().await {
         let data = &message.message.data;
@@ -153,32 +139,22 @@ async fn decision_listener(
             Ok(decision) => {
                 println!(
                     "Received decision for {}: {:?}",
-                    decision.application_id,
-                    decision.status,
+                    decision.application_id, decision.status,
                 );
-                let status_str =
-                    serde_json::to_value(&decision.status)
-                        .ok()
-                        .and_then(|v| {
-                            v.as_str().map(String::from)
-                        })
-                        .unwrap_or("UNKNOWN".into());
+                let status_str = serde_json::to_value(&decision.status)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or("UNKNOWN".into());
 
                 let mut store = store.lock().await;
-                if let Some(entry) =
-                    store.get_mut(&decision.application_id)
-                {
+                if let Some(entry) = store.get_mut(&decision.application_id) {
                     entry.status = status_str;
-                    entry.interest_rate =
-                        decision.interest_rate;
-                    entry.max_term_months =
-                        decision.max_term_months;
+                    entry.interest_rate = decision.interest_rate;
+                    entry.max_term_months = decision.max_term_months;
                 }
             }
             Err(e) => {
-                eprintln!(
-                    "Failed to deserialize decision: {e}"
-                );
+                eprintln!("Failed to deserialize decision: {e}");
             }
         }
         let _ = message.ack().await;
@@ -199,30 +175,18 @@ async fn main() -> anyhow::Result<()> {
     let topic = client.topic(TOPIC_APPLICATIONS);
     let publisher = topic.new_publisher(None);
 
-    let store: ApplicationStore =
-        Arc::new(Mutex::new(HashMap::new()));
+    let store: ApplicationStore = Arc::new(Mutex::new(HashMap::new()));
 
-    tokio::spawn(decision_listener(
-        client.clone(),
-        store.clone(),
-    ));
+    tokio::spawn(decision_listener(client.clone(), store.clone()));
 
     let state = AppState { publisher, store };
 
     let app = Router::new()
-        .route(
-            "/applications",
-            post(submit_application),
-        )
-        .route(
-            "/applications/{id}",
-            get(get_application),
-        )
+        .route("/applications", post(submit_application))
+        .route("/applications/{id}", get(get_application))
         .with_state(state);
 
-    let listener =
-        tokio::net::TcpListener::bind("0.0.0.0:3000")
-            .await?;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
     println!("Listening on 0.0.0.0:3000");
     axum::serve(listener, app).await?;
 

@@ -4,8 +4,7 @@ use google_cloud_googleapis::pubsub::v1::PubsubMessage;
 use google_cloud_pubsub::client::{Client, ClientConfig};
 use rand::Rng;
 use shared::{
-    DecisionStatus, LoanApplication, LoanDecision,
-    SUB_APPLICATIONS, TOPIC_DECISIONS,
+    DecisionStatus, LoanApplication, LoanDecision, SUB_APPLICATIONS, TOPIC_DECISIONS,
 };
 
 #[tokio::main]
@@ -44,19 +43,14 @@ async fn main() -> anyhow::Result<()> {
 
         println!(
             "Processing application {} for user {} ({} {})",
-            app.application_id,
-            app.user_id,
-            app.amount,
-            app.currency,
+            app.application_id, app.user_id, app.amount, app.currency,
         );
 
         let mut rng = rand::rng();
         let approved = rng.random_bool(0.7);
 
         let decision = if approved {
-            let rate: f64 =
-                (rng.random_range(3.0_f64..=12.0) * 100.0).round()
-                    / 100.0;
+            let rate: f64 = (rng.random_range(3.0_f64..=12.0) * 100.0).round() / 100.0;
             let term = rng.random_range(12..=60);
             LoanDecision {
                 application_id: app.application_id.clone(),
@@ -78,8 +72,8 @@ async fn main() -> anyhow::Result<()> {
             decision.application_id, decision.status,
         );
 
-        let payload = serde_json::to_vec(&decision)
-            .context("failed to serialize decision")?;
+        let payload =
+            serde_json::to_vec(&decision).context("failed to serialize decision")?;
 
         let awaiter = publisher
             .publish(PubsubMessage {
@@ -88,10 +82,7 @@ async fn main() -> anyhow::Result<()> {
             })
             .await;
 
-        awaiter
-            .get()
-            .await
-            .context("failed to publish decision")?;
+        awaiter.get().await.context("failed to publish decision")?;
 
         message.ack().await.context("failed to ack message")?;
     }
